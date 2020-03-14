@@ -1,0 +1,15 @@
+include README.md
+include CHANGES.md
+
+include setup.py
+include setup.cfg
+
+recursive-include docs *
+recursive-include licenses *
+recursive-include scripts *
+recursive-include static *
+
+prune docs/_build
+prune build
+
+global-exclude *.pyc *.o
