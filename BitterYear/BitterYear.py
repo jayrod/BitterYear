@@ -12,10 +12,22 @@ from json import loads
 from json.decoder import JSONDecodeError
 from os import curdir
 from pathlib import Path
+from shutil import which
+from subprocess import run
 from typing import Tuple
 
+from inquirer import Confirm, prompt
 from markdown_table import Table
 from tabulate import tabulate
+
+
+def confirm() -> bool:
+    questions = [
+        Confirm("continue", message="Would you like to add records to /etc/hosts")
+    ]
+    answer = prompt(questions)
+
+    return answer["continue"]
 
 
 def msg(message: str) -> str:
@@ -95,6 +107,21 @@ def add_json_file(json_files: list, json_file: str) -> None:
         print(err_msg("File {0} was not valid json".format(json_file)))
 
 
+def has_host_entry(hostess_bin: str, name: str) -> bool:
+    cmd = [hostess_bin, "has", name]
+    out = run(cmd, capture_output=True)
+
+    if out.returncode == 0:
+        return True
+
+    return False
+
+
+def add_host(hostess_bin: str, record: dict) -> None:
+    cmd = [hostess_bin, "add", record["name"], record["address"]]
+    run(cmd)
+
+
 def main():
     print("Executing BitterYear version %s." % __version__)
 
@@ -134,3 +161,18 @@ def main():
     tabulate_table = render_tab_table(columns, table)
 
     print(tabulate_table)
+
+    hostess_bin = which("hostess")
+    print(msg("Located hostess binary at {0}".format(hostess_bin)))
+
+    new_records = [
+        record
+        for record in a_records
+        if not has_host_entry(hostess_bin, record["name"])
+    ]
+
+    if new_records:
+        answer = confirm()
+        [add_host(hostess_bin, record) for record in a_records]
+    else:
+        print(msg("All records already added to hosts"))
