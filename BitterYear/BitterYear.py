@@ -4,21 +4,23 @@
 
 __version__ = "0.1.0dev"
 
+import argparse
 import re
 import sys
-import argparse
-from pathlib import Path
+from glob import iglob
 from json import loads
 from json.decoder import JSONDecodeError
 from os import curdir
-from glob import iglob
-
-from tabulate import tabulate
-from markdown_table import Table
+from pathlib import Path
 from typing import Tuple
+
+from markdown_table import Table
+from tabulate import tabulate
+
 
 def msg(message: str) -> str:
     return "[+] {0}".format(message)
+
 
 def err_msg(message: str) -> str:
     return "[!] {0}".format(message)
@@ -28,14 +30,16 @@ def parse_a_records(json_obj) -> list:
     records = list()
 
     for obj in json_obj:
-        #if the three keys are in then it contains A record info
-        if all(x in obj.keys() for x in ['address', 'type', 'name']):
+        # if the three keys are in then it contains A record info
+        if all(x in obj.keys() for x in ["address", "type", "name"]):
             records.append(obj)
-            
+
     return records
+
 
 def render_md_table(columns: list, full_table: list) -> str:
     return Table(columns, full_table).render()
+
 
 def render_text_info(data: list) -> str:
     output_string = ""
@@ -43,10 +47,11 @@ def render_text_info(data: list) -> str:
 
     for item in data:
 
-        output_string += "\tAddress : {0}\n".format(item['address']) 
-        output_string += "\tName: {0}\n\n".format(item['name']) 
+        output_string += "\tAddress : {0}\n".format(item["address"])
+        output_string += "\tName: {0}\n\n".format(item["name"])
 
     return output_string
+
 
 def render_tab_table(columns: list, full_table: list) -> str:
     return tabulate(full_table, headers=columns, tablefmt="fancy_grid")
@@ -65,24 +70,25 @@ def dnsinfo_to_table(records: list) -> Tuple[list, list]:
 
 
 def insert_md_table(markdown: str, md_table: str) -> None:
-    content = open(markdown, 'r').read(-1)
-    
-    #regex
-    regex = r'\[\[\s?dnsrecon\s?\]\]'
+    content = open(markdown, "r").read(-1)
 
-    #if there exists a tag then substitute our data into it
+    # regex
+    regex = r"\[\[\s?dnsrecon\s?\]\]"
+
+    # if there exists a tag then substitute our data into it
     if re.findall(regex, content):
         re.sub(regex, md_table, content)
     else:
         content += md_table
 
-    with open(markdown, 'w') as m_file:
+    with open(markdown, "w") as m_file:
         m_file.write(content)
+
 
 def add_json_file(json_files: list, json_file: str) -> None:
 
     try:
-        json_files.append(loads(open(json_file, 'r').read(-1)))
+        json_files.append(loads(open(json_file, "r").read(-1)))
     except FileNotFoundError:
         print(err_msg("File path is not valid"))
     except JSONDecodeError:
@@ -93,29 +99,29 @@ def main():
     print("Executing BitterYear version %s." % __version__)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--file", dest='json_file', help="File to parse.")
+    parser.add_argument("--file", dest="json_file", help="File to parse.")
     parser.add_argument("--markdown", help="Markdown File to append data.")
     args = parser.parse_args()
 
-    #holds all files to be processed
+    # holds all files to be processed
     json_files = list()
 
-    #if a json file is provided then parse it
+    # if a json file is provided then parse it
     if args.json_file:
         print(msg("Parsing json file {0}".format(args.json_file)))
         add_json_file(json_files, args.json_file)
     else:
-        search_path = str(Path(curdir).joinpath('**/scans/dnsrecon/*')) 
+        search_path = str(Path(curdir).joinpath("**/scans/dnsrecon/*"))
         dns_files = [f for f in iglob(search_path, recursive=True)]
         [add_json_file(json_files, dns_file) for dns_file in dns_files]
 
     a_records = list()
     [a_records.extend(parse_a_records(f)) for f in json_files]
 
-    #get normal text output
+    # get normal text output
     text_output = render_text_info(a_records)
 
-    #create column and output data
+    # create column and output data
     columns, table = dnsinfo_to_table(a_records)
 
     # if Output file given then write output to it
@@ -123,7 +129,7 @@ def main():
         print(msg("Writing markdown to file"))
         md_table = render_md_table(columns, table)
         insert_md_table(args.markdown, md_table)
-        
+
     print(msg("DNSRECON Results"))
     tabulate_table = render_tab_table(columns, table)
 
