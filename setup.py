@@ -29,6 +29,9 @@ setup(
         },
     version = version,
     description = "Quickly parse dnsrecon output for note taking.",
+    install_requires=['inquirer>=2.6.3', 
+                      'markdown_table>=2019.4.13', 
+                      'tabulate>=0.8.6']
     long_description = long_descr,
     author = "",
     author_email = "",
