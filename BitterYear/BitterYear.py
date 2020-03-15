@@ -89,7 +89,7 @@ def insert_md_table(markdown: str, md_table: str) -> None:
 
     # if there exists a tag then substitute our data into it
     if re.findall(regex, content):
-        re.sub(regex, md_table, content)
+        content = re.sub(regex, md_table, content)
     else:
         content += md_table
 
