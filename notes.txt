@@ -1,0 +1,5 @@
+Address|name
+-|-
+10.10.10.29 |@.bank.htb
+10.10.10.29 |ns.bank.htb
+10.10.10.29 |bank.htb
