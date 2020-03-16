@@ -125,7 +125,7 @@ def add_host(hostess_bin: str, record: dict) -> None:
 def main():
     print("Executing BitterYear version %s." % __version__)
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Parse dnsrecon records")
     parser.add_argument("--file", dest="json_file", help="File to parse.")
     parser.add_argument("--markdown", help="Markdown File to append data.")
     args = parser.parse_args()
