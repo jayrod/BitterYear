@@ -1,5 +1,5 @@
 # BitterYear
-Quickly parse dnsrecon output to save to note file in markdown table format and also add entries to /etc/hosts file.
+Quickly parse DNSRECON output to save to note file in markdown table format and also add entries to /etc/hosts file.
 
 # Usage
 
