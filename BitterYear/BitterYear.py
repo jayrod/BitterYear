@@ -2,40 +2,125 @@
 
 """BitterYear.BitterYear: provides entry point main()."""
 
-__version__ = "0.4"
+__version__ = "0.5"
 
 import argparse
 import re
 import sys
 from glob import iglob
-from json import loads
+from ipaddress import ip_address
+from json import dumps, loads
 from json.decoder import JSONDecodeError
-from os import curdir
+from os import curdir, environ
 from pathlib import Path
 from shutil import which
-from subprocess import run
+from subprocess import CompletedProcess, run
+from threading import Thread
 from typing import Tuple
 
-from inquirer import Confirm, prompt
+from inquirer import Checkbox, Confirm, List, Text, prompt
 from markdown_table import Table
 from tabulate import tabulate
 
-
-def confirm() -> bool:
-    questions = [
-        Confirm("continue", message="Would you like to add records to /etc/hosts")
-    ]
-    answer = prompt(questions)
-
-    return answer["continue"]
+from BitterYear.markdown import Markdown
+from BitterYear.Util import Util
 
 
-def msg(message: str) -> str:
-    return "[+] {0}".format(message)
+def run_binary(
+    dnsrecon_bin: str, domain_name: str, options: dict, cmd_output: list
+) -> None:
+    """ Runs the dnsrecon command with given options.
+
+        Arguments:
+            dnsrecon_bin(str): Path string to dnsrecon
+            options(dict): dictionary containing options needed for running
+            domain_name(str): Target domain name
+            cmd_output(list): List to append command output to
+
+    """
+    # create report name
+    json_report = str(
+        Path(options["output_path"]).joinpath("{0}.json".format(domain_name))
+    )
+    csv_report = str(
+        Path(options["output_path"]).joinpath("{0}.csv".format(domain_name))
+    )
+    sqlite = str(Path(options["output_path"]).joinpath("{0}.db".format(domain_name)))
+
+    cmd = list()
+    cmd.extend([dnsrecon_bin])
+    cmd.extend(["-d", domain_name])
+    cmd.extend(["-a"])
+    cmd.extend(["-n", options["name_server"]])
+    cmd.extend(["-j", json_report])
+    cmd.extend(["-c", csv_report])
+    cmd.extend(["--db", sqlite])
+
+    print("Starting : {0} ".format(domain_name))
+    output = run(cmd, capture_output=True)
+    print("Finished : {0}".format(domain_name))
+
+    cmd_output.append(
+        {"results": output, "cmd": " ".join(cmd), "json_report": json_report}
+    )
 
 
-def err_msg(message: str) -> str:
-    return "[!] {0}".format(message)
+def validate_input(args) -> ip_address:
+    """ Validates and formulates user input. This function can make default
+    decisions about where to get environment variable input from and what form
+    it should take.
+
+        Arguments:
+            args(argparser): Arguments to validate
+
+        Return:
+            ip_address: Default target ip address
+
+    """
+    # determine if the input IP address is inface an IP
+    ip = None
+
+    try:
+        # if no target host given
+        if not args.target:
+            # look for RHOST environ var
+            if "RHOST" in environ.keys():
+                print(Util().msg("Using Environment variable for IP address"))
+                ip = ip_address(environ["RHOST"])
+        else:
+            ip = ip_address(args.target)
+
+    except ValueError:
+        print(
+            Util().err_msg(
+                "Argument or environment variable was not a valid IP address"
+            )
+        )
+        sys.exit()
+
+    return ip
+
+
+def info_to_table(rows: list) -> Tuple[list, list]:
+    """ Formats raw row data into a table format that will be used
+    with other render functions. This function is where column headers
+    should be defined.
+
+        Arguments:
+            rows(list): Rows of data
+
+        Return:
+            List : List of column names
+            List : Full table representation of data
+    """
+    columns = ["Address", "Name", "Type"]
+    full_table = []
+
+    for row in rows:
+        # create table
+        full_table.append([row["address"], row["name"], row["type"]])
+
+    return columns, full_table
 
 
 def parse_a_records(json_obj) -> list:
@@ -81,30 +166,45 @@ def dnsinfo_to_table(records: list) -> Tuple[list, list]:
     return columns, full_table
 
 
-def insert_md_table(markdown: str, md_table: str) -> None:
-    content = open(markdown, "r").read(-1)
+def generate_options(rhost: str) -> dict:
+    """
+        dnsrecon -d {HOSTNAME} -n {Nameserver IP} -j {json file}
+    """
 
-    # regex
-    regex = r"\[\[\s?dnsrecon\s?\]\]"
+    questions = list()
 
-    # if there exists a tag then substitute our data into it
-    if re.findall(regex, content):
-        content = re.sub(regex, md_table, content)
+    pre_questions = [
+        Confirm(
+            "use_ip", default=True, message="Use IP {0} for Name Server".format(rhost)
+        ),
+    ]
+
+    pre_answers = prompt(pre_questions)
+
+    # If we decided against using an IP
+    if not pre_answers["use_ip"]:
+        questions.append(Text("name_server", message="Input Name Server"))
+
+    # Are there items that match etc host defs
+    domains = Util().ip_to_domains(rhost)
+    if domains:
+        questions.append(
+            Checkbox("domains", message="Input domain to search", choices=domains)
+        )
     else:
-        content += md_table
+        questions.append(Text("domains", message="Input domain to search"))
 
-    with open(markdown, "w") as m_file:
-        m_file.write(content)
+    answers = prompt(questions)
 
+    # annotate answers
+    if pre_answers["use_ip"]:
+        answers["name_server"] = rhost
 
-def add_json_file(json_files: list, json_file: str) -> None:
+    # if we put in only one domain name then turn it into a list
+    if not hasattr(answers["domains"], "sort"):
+        answers["domains"] = [answers["domains"]]
 
-    try:
-        json_files.append(loads(open(json_file, "r").read(-1)))
-    except FileNotFoundError:
-        print(err_msg("File path is not valid"))
-    except JSONDecodeError:
-        print(err_msg("File {0} was not valid json".format(json_file)))
+    return answers
 
 
 def has_host_entry(hostess_bin: str, name: str) -> bool:
@@ -117,30 +217,99 @@ def has_host_entry(hostess_bin: str, name: str) -> bool:
     return False
 
 
-def add_host(hostess_bin: str, record: dict) -> None:
-    cmd = [hostess_bin, "add", record["name"], record["address"]]
-    run(cmd)
+def add_host_records(hostess_bin: str, new_records: list) -> None:
+
+    if not new_records:
+        return
+
+    questions = [
+        Confirm("continue", message="Would you like to add records to /etc/hosts")
+    ]
+
+    answer = prompt(questions)["continue"]
+
+    if answer:
+        for record in new_records:
+            cmd = [hostess_bin, "add", record["name"], record["address"]]
+            run(cmd)
 
 
-def main():
-    print("Executing BitterYear version %s." % __version__)
+def perform_scan(args):
 
-    parser = argparse.ArgumentParser(description="Parse dnsrecon records")
-    parser.add_argument("--file", dest="json_file", help="File to parse.")
-    parser.add_argument("--markdown", help="Markdown File to append data.")
-    args = parser.parse_args()
+    dnsrecon_bin = which("dnsrecon")
+    if not dnsrecon_bin:
+        print(Util().err_msg("Unable to locate dnsrecon binary"))
+        return
+
+    print(Util().msg("Located dnsrecon binary : {0}".format(dnsrecon_bin)))
+    ip = validate_input(args)
+
+    str_ip = str(ip) if ip else ""
+
+    # Get options for run
+    dnsrecon_options = generate_options(str_ip)
+    dnsrecon_options["output_path"] = Util().create_scan_directory("scans/dnsrecon")
+
+    outputs = list()
+
+    threads = {
+        domain_name: Thread(
+            target=run_binary,
+            args=(dnsrecon_bin, domain_name, dnsrecon_options, outputs),
+        )
+        for domain_name in dnsrecon_options["domains"]
+    }
+
+    [t.start() for t in threads.values()]
+    [t.join() for t in threads.values()]
+
+    if args.save_cmd:
+        filename = str(Path(curdir).joinpath("cmd.sh"))
+        with open(filename, "w") as cmd_sh:
+            [cmd_sh.write("{0}\n".format(o["cmd"])) for o in outputs]
+
+    # load json file from output
+    json_objs = list()
+    [
+        Util().add_json_file(json_objs, output["json_report"])
+        for output in outputs
+        if "json_report" in output.keys()
+    ]
+
+    print(Util().msg("Parsing Output returned from dnsrecon"))
+    all_a_records = [parse_records(json_obj, "A") for json_obj in json_objs]
+    all_srv_records = [parse_records(json_obj, "SRV") for json_obj in json_objs]
+
+    a_records = [row for record in all_a_records for row in record]
+    srv_records = [row for record in all_srv_records for row in record]
+
+    # create column and output data
+    tables = info_to_table(a_records)
+    srv_tables = info_to_table(srv_records)
+
+    # if Output file given then write output to it
+    if args.markdown:
+        print(Util().msg("Writing markdown to file"))
+        md_table = render_md_table(columns, table)
+        Markdown().insert_md_table(args.markdown, md_table, "BLACKWAR")
+
+    print(Util().msg("Results"))
+    if a_records:
+        print("All A Records")
+        print(render_tab_table(tables[0], tables[1]))
+    if srv_records:
+        print("All SRV Records")
+        print(render_tab_table(srv_tables[0], srv_tables[1]))
+
+
+def process_scan():
 
     # holds all files to be processed
     json_files = list()
 
-    # if a json file is provided then parse it
-    if args.json_file:
-        print(msg("Parsing json file {0}".format(args.json_file)))
-        add_json_file(json_files, args.json_file)
-    else:
-        search_path = str(Path(curdir).joinpath("**/scans/dnsrecon/*"))
-        dns_files = [f for f in iglob(search_path, recursive=True)]
-        [add_json_file(json_files, dns_file) for dns_file in dns_files]
+    search_path = str(Path(curdir).joinpath("**/scans/dnsrecon/*"))
+    dns_files = [f for f in iglob(search_path, recursive=True)]
+    [Util().add_json_file(json_files, dns_file) for dns_file in dns_files]
 
     a_records = list()
     [a_records.extend(parse_a_records(f)) for f in json_files]
@@ -151,28 +320,58 @@ def main():
     # create column and output data
     columns, table = dnsinfo_to_table(a_records)
 
-    # if Output file given then write output to it
-    if args.markdown:
-        print(msg("Writing markdown to file"))
-        md_table = render_md_table(columns, table)
-        insert_md_table(args.markdown, md_table)
-
-    print(msg("DNSRECON Results"))
+    print(Util().msg("DNSRECON Results"))
     tabulate_table = render_tab_table(columns, table)
 
     print(tabulate_table)
 
-    hostess_bin = which("hostess")
-    print(msg("Located hostess binary at {0}".format(hostess_bin)))
+    return a_records
 
-    new_records = [
-        record
-        for record in a_records
-        if not has_host_entry(hostess_bin, record["name"])
-    ]
 
-    if new_records:
-        answer = confirm()
-        [add_host(hostess_bin, record) for record in a_records]
+def main():
+    print("Executing BitterYear version %s." % __version__)
+
+    parser = argparse.ArgumentParser(description="Parse dnsrecon records")
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--target", default="None", help="IP address for Name Server.")
+    group.add_argument(
+        "--process-only",
+        dest="proc_only",
+        action="store_true",
+        help="Process data only.",
+    )
+    parser.add_argument(
+        "--save-cmd",
+        dest="save_cmd",
+        action="store_true",
+        help="Save cmd output to file",
+    )
+    parser.add_argument("--markdown", help="Write data to markdown file")
+    args = parser.parse_args()
+
+    if args.proc_only:
+
+        print(Util().msg("Processing json files"))
+        a_records = process_scan()
+
     else:
-        print(msg("All records already added to hosts"))
+
+        print(Util().msg("Performing dnsrecon"))
+        a_records = perform_scan(args)
+
+    if a_records:
+
+        hostess_bin = which("hostess")
+        print(Util().msg("Located hostess binary at {0}".format(hostess_bin)))
+
+        new_records = [
+            record
+            for record in a_records
+            if not has_host_entry(hostess_bin, record["name"])
+        ]
+
+        add_host_records(hostess_bin, new_records)
+
+    else:
+        print(Util().msg("No records found"))

@@ -1,11 +1,11 @@
 import re
-from pathlib import Path
-from markdown_table import Table
 from argparse import ArgumentParser
+from pathlib import Path
+
+from markdown_table import Table
 
 
 class Markdown:
-
     def render_md_table(self, columns: list, full_table: list) -> str:
         return Table(columns, full_table).render()
 
@@ -35,18 +35,15 @@ class Markdown:
 
         with open(markdown, "w") as m_file:
             m_file.write(content)
-            
-            
+
     def output(self, args: ArgumentParser, columns: list, table: list) -> None:
-        
+
         if columns is None:
             raise ValueError("Columns is of NoneType")
         if table is None:
             raise ValueError("Table is of NoneType")
-            
+
         # if Output file given then write output to it
         if args.markdown:
             md_table = self.render_md_table(columns, table)
             Markdown().insert_md_table(args.markdown, md_table, "SOLOSUNRISE")
-
-
