@@ -2,7 +2,7 @@
 
 """BitterYear.BitterYear: provides entry point main()."""
 
-__version__ = "0.5"
+__version__ = "0.7"
 
 import argparse
 import re
@@ -42,9 +42,6 @@ def run_binary(
     json_report = str(
         Path(options["output_path"]).joinpath("{0}.json".format(domain_name))
     )
-    csv_report = str(
-        Path(options["output_path"]).joinpath("{0}.csv".format(domain_name))
-    )
     sqlite = str(Path(options["output_path"]).joinpath("{0}.db".format(domain_name)))
 
     cmd = list()
@@ -53,7 +50,6 @@ def run_binary(
     cmd.extend(["-a"])
     cmd.extend(["-n", options["name_server"]])
     cmd.extend(["-j", json_report])
-    cmd.extend(["-c", csv_report])
     cmd.extend(["--db", sqlite])
 
     print("Starting : {0} ".format(domain_name))
@@ -82,7 +78,7 @@ def validate_input(args) -> ip_address:
 
     try:
         # if no target host given
-        if not args.target:
+        if "None" in args.target:
             # look for RHOST environ var
             if "RHOST" in environ.keys():
                 print(Util().msg("Using Environment variable for IP address"))
@@ -121,6 +117,24 @@ def info_to_table(rows: list) -> Tuple[list, list]:
         full_table.append([row["address"], row["name"], row["type"]])
 
     return columns, full_table
+
+
+def parse_records(cmd_output: list, record_type: str) -> list:
+    """ Parse command output for A records
+
+        Arguments:
+            cmd_output(list): Command output
+
+        Returns:
+            list: List of data containing dicts
+    """
+
+    if not cmd_output:
+        return []
+
+    return [
+        rec for rec in cmd_output if "type" in rec.keys() if rec["type"] == record_type
+    ]
 
 
 def parse_a_records(json_obj) -> list:
@@ -372,6 +386,3 @@ def main():
         ]
 
         add_host_records(hostess_bin, new_records)
-
-    else:
-        print(Util().msg("No records found"))
