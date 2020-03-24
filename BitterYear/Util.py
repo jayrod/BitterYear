@@ -63,6 +63,8 @@ class Util:
             print(Util().err_msg("File not found {0}".format(json_file)))
         except JSONDecodeError:
             print(Util().err_msg("File {0} was not valid json".format(json_file)))
+        except UnicodeDecodeError:
+            print(Util().err_msg("File {0} was not valid json".format(json_file)))
 
     def ip_to_domains(self, ip: str) -> list:
 

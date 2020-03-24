@@ -2,7 +2,7 @@
 
 """BitterYear.BitterYear: provides entry point main()."""
 
-__version__ = "0.7"
+__version__ = "0.7.1"
 
 import argparse
 import re
